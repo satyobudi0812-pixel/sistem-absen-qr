@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistem Absensi Online</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+</head>
+<body class="bg-gray-50 text-gray-800 font-sans pb-10">
+
+    <div class="max-w-xl mx-auto mt-10 p-6 bg-white rounded-lg shadow-md">
+        <h1 class="text-2xl font-extrabold text-center text-gray-900 mb-6">Sistem Absensi Online</h1>
+
+        <div class="flex justify-center mb-6 space-x-4 border-b pb-4">
+            <button onclick="switchTab('user')" class="px-4 py-2 bg-blue-600 text-white rounded font-semibold">Panel Pengguna</button>
+            <button onclick="switchTab('admin')" class="px-4 py-2 bg-gray-800 text-white rounded font-semibold">Panel Admin</button>
+        </div>
+
+        <div id="user-section">
+            <div class="mb-4">
+                <label class="block text-sm font-medium mb-1">Nama Lengkap</label>
+                <input type="text" id="nama-user" placeholder="Masukkan nama Anda..." class="w-full p-2 border rounded outline-none focus:ring focus:ring-blue-200">
+            </div>
+            <button onclick="mulaiScanner()" class="w-full bg-green-500 text-white py-2 rounded font-semibold hover:bg-green-600 mb-4">Mulai Scan QR</button>
+            
+            <div id="scanner-container" class="hidden">
+                <div id="reader" class="w-full bg-gray-100 border flex justify-center rounded"></div>
+                <button onclick="stopScanner()" class="w-full mt-2 bg-red-500 text-white py-1 rounded hover:bg-red-600">Batalkan Scan</button>
+            </div>
+            <p id="status-pesan" class="text-center mt-4"></p>
+        </div>
+
+        <div id="admin-section" class="hidden">
+            <div class="mb-8 p-4 bg-gray-100 rounded border">
+                <h2 class="font-bold mb-2">Buat QR Code Sesi Baru</h2>
+                <div class="flex space-x-2 mb-4">
+                    <input type="text" id="qr-input" placeholder="Contoh: Absen Pagi" class="w-full p-2 border rounded outline-none">
+                    <button onclick="buatQR()" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Buat</button>
+                </div>
+                <div id="qrcode-box" class="hidden flex justify-center bg-white p-4 border rounded"><div id="qrcode-canvas"></div></div>
+            </div>
+
+            <h2 class="font-bold mb-2">Data Hadir (Live)</h2>
+            <div class="flex justify-end mb-2">
+                <button onclick="clearData()" class="text-xs bg-red-500 text-white px-3 py-1.5 rounded hover:bg-red-600">Hapus Semua Data</button>
+            </div>
+            
+            <div class="overflow-x-auto border rounded">
+                <table class="w-full text-left border-collapse text-sm">
+                    <thead>
+                        <tr class="bg-gray-200">
+                            <th class="p-2 border">Waktu</th>
+                            <th class="p-2 border">Nama</th>
+                            <th class="p-2 border">Sesi QR</th>
+                            <th class="p-2 border">Lokasi</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tabel-absen"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // =======================================================
+        // MASUKKAN KODE FIREBASE ANDA DI BAWAH INI:
+        // =======================================================
+       const firebaseConfig = {
+              apiKey: "AIzaSyA2zkDJDIChHbiDkZKWqaZdQEi8XUKB1S0",
+               authDomain: "sistem-86465.firebaseapp.com",
+               databaseURL: "https://sistem-86465-default-rtdb.asia-southeast1.firebasedatabase.app",
+             projectId: "sistem-86465",
+             storageBucket: "sistem-86465.firebasestorage.app",
+               messagingSenderId: "1063936426788",
+             appId: "1:1063936426788:web:1cfe3a73566f0e088ca9b1"
+       };   
+       // =======================================================
+
+        // Sambungkan ke Firebase
+        if (!firebase.apps.length) { firebase.initializeApp(firebaseConfig); }
+        const database = firebase.database();
+
+        let html5QrcodeScanner;
+        let isScannerRunning = false;
+
+        // Fungsi Ganti Tab
+        function switchTab(tab) {
+            document.getElementById('user-section').classList.toggle('hidden', tab !== 'user');
+            document.getElementById('admin-section').classList.toggle('hidden', tab === 'admin');
+            stopScanner();
+            if(tab === 'admin') loadAdminData();
+        }
+
+        // Fungsi Admin Membuat QR
+        function buatQR() {
+            const teks = document.getElementById('qr-input').value;
+            if (!teks) return alert("Masukkan nama sesi!");
+            const canvas = document.getElementById('qrcode-canvas');
+            canvas.innerHTML = "";
+            new QRCode(canvas, { text: teks, width: 200, height: 200 });
+            document.getElementById('qrcode-box').classList.remove('hidden');
+        }
+
+        // Fungsi Menyalakan Kamera
+        function mulaiScanner() {
+            if (!document.getElementById('nama-user').value.trim()) return alert("Harap masukkan Nama Lengkap Anda!");
+            document.getElementById('scanner-container').classList.remove('hidden');
+            if (!isScannerRunning) {
+                html5QrcodeScanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: 250 });
+                html5QrcodeScanner.render(onScanSuccess, () => {}); // Error kamera diabaikan agar tidak mengganggu
+                isScannerRunning = true;
+            }
+        }
+
+        // Fungsi Mematikan Kamera
+        function stopScanner() {
+            if (html5QrcodeScanner && isScannerRunning) {
+                html5QrcodeScanner.clear();
+                isScannerRunning = false;
+                document.getElementById('scanner-container').classList.add('hidden');
+            }
+        }
+
+        // Fungsi Saat QR Code Berhasil Terbaca (Sistem Toleransi GPS)
+        function onScanSuccess(decodedText) {
+            stopScanner();
+            const nama = document.getElementById('nama-user').value.trim();
+            const pesan = document.getElementById('status-pesan');
+            
+            pesan.innerText = "Memproses absensi... (Mencoba melacak lokasi)";
+            pesan.className = "text-blue-600 font-bold text-center mt-2";
+
+            // Fungsi Simpan Data ke Database
+            const prosesSimpanDatabase = (lat, lng, statusLokasi) => {
+                const dataBaru = { 
+                    waktu: new Date().toLocaleString('id-ID'), 
+                    nama: nama, 
+                    sesiQR: decodedText, 
+                    lat: lat, 
+                    lng: lng, 
+                    status: statusLokasi,
+                    timestamp: Date.now() 
+                };
+
+                database.ref('data_absen').push(dataBaru).then(() => {
+                    if(lat === "Tidak diketahui") {
+                        pesan.innerText = `Absen Berhasil: ${nama}! (Lokasi Gagal Dilacak)`;
+                        pesan.className = "text-yellow-600 font-bold text-center mt-2 p-2 bg-yellow-100 rounded border border-yellow-300";
+                    } else {
+                        pesan.innerText = `Absen Berhasil: ${nama}! (Lokasi Akurat)`;
+                        pesan.className = "text-green-600 font-bold text-center mt-2 p-2 bg-green-100 rounded border border-green-300";
+                    }
+                    document.getElementById('nama-user').value = ""; // Bersihkan nama
+                }).catch(err => {
+                    pesan.innerText = "Gagal menyimpan ke server/database.";
+                    pesan.className = "text-red-600 font-bold text-center mt-2 p-2";
+                });
+            };
+
+            // Mulai melacak lokasi pengguna (Waktu maksimal cuma 5 detik)
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    // JIKA GPS BERHASIL
+                    pos => {
+                        prosesSimpanDatabase(pos.coords.latitude, pos.coords.longitude, "Akurat");
+                    },
+                    // JIKA GPS GAGAL/ERROR
+                    err => { 
+                        let alasanGagal = "Error";
+                        if (err.code === err.PERMISSION_DENIED) alasanGagal = "Izin Ditolak";
+                        else if (err.code === err.POSITION_UNAVAILABLE) alasanGagal = "Sinyal Lemah";
+                        else if (err.code === err.TIMEOUT) alasanGagal = "Waktu Habis";
+                        
+                        alert(`Peringatan: Lokasi gagal dilacak (${alasanGagal}). Absen tetap akan dimasukkan tanpa peta.`);
+                        prosesSimpanDatabase("Tidak diketahui", "Tidak diketahui", alasanGagal);
+                    },
+                    // Seting GPS: Akurasi diturunkan agar lebih cepat, waktu maksimal 5 detik
+                    { enableHighAccuracy: false, timeout: 5000, maximumAge: 0 } 
+                );
+            } else {
+                alert("Browser HP Anda tidak mendukung GPS. Absen dilanjutkan tanpa peta.");
+                prosesSimpanDatabase("Tidak diketahui", "Tidak diketahui", "Browser tidak support");
+            }
+        }
+
+        // Fungsi Admin Menampilkan Data
+        function loadAdminData() {
+            database.ref('data_absen').orderByChild('timestamp').on('value', snap => {
+                const tabel = document.getElementById('tabel-absen');
+                tabel.innerHTML = '';
+                const data = snap.val();
+                
+                if(!data) { 
+                    tabel.innerHTML = '<tr><td colspan="4" class="text-center p-4 text-gray-500">Belum ada data kehadiran.</td></tr>'; 
+                    return; 
+                }
+                
+                Object.values(data).reverse().forEach(absen => {
+                    // Cek lokasi berhasil atau tidak
+                    let tampilanLokasi = "";
+                    if (absen.lat === "Tidak diketahui") {
+                        tampilanLokasi = `<span class="text-red-500 font-semibold text-xs">${absen.status}</span>`;
+                    } else {
+                        // Link Google Map yang sudah diperbaiki
+                        const peta = `https://www.google.com/maps?q=${absen.lat},${absen.lng}`;
+                        tampilanLokasi = `<a href="${peta}" class="text-blue-500 hover:text-blue-700 underline text-xs font-semibold" target="_blank">Lihat Map</a>`;
+                    }
+
+                    tabel.innerHTML += `
+                        <tr class="border-b hover:bg-gray-50">
+                            <td class="p-2 text-xs whitespace-nowrap">${absen.waktu}</td>
+                            <td class="p-2 font-bold text-sm">${absen.nama}</td>
+                            <td class="p-2 text-xs font-mono text-gray-600">${absen.sesiQR}</td>
+                            <td class="p-2">${tampilanLokasi}</td>
+                        </tr>
+                    `;
+                });
+            });
+        }
+
+        // Fungsi Hapus Semua Data
+        function clearData() {
+            if(confirm("Yakin ingin menghapus semua data kehadiran dari server?")) {
+                database.ref('data_absen').remove();
+            }
+        }
+    </script>
+</body>
+</html>
